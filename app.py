@@ -98,7 +98,6 @@ def insert_company():
     if request.method == 'POST':
         comp = request.form
         df_input = pd.DataFrame.from_dict(dict(comp), orient='index').transpose()
-        print(df_input)
         session['df_input'] = df_input.to_json()
         return redirect('/predict')
     
