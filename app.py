@@ -1,23 +1,21 @@
 from flask import Flask, render_template, request, session, redirect
 # packages
 import pandas as pd
-import os
-import psycopg2
 import random
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.metrics import mean_squared_error
 import joblib
-from datetime import datetime, timedelta
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 
 app = Flask(__name__)
 app.secret_key = 'ESG'
 num_of_company = 1
 min_rev, max_rev = 500000, 90000000
+esg_cols = 18
 
 def generate_input_df():
     data = {
@@ -62,10 +60,10 @@ def df_to_html(df):
 
 def make_predictions(df):
     esg, stock, stock_esg = load_models()
-    esg_cols = df.columns.tolist()[4:]
-    predicted_esg_score = esg.predict(df[esg_cols])
+    columns_to_standardize = df.columns.tolist()[4:4+esg_cols]
+    predicted_esg_score = esg.predict(df[columns_to_standardize])
     predicted_stock = stock.predict(df['I3: Revenue'].to_numpy().reshape(-1, 1))
-    predicted_stock_esg = stock_esg.predict(df[esg_cols + ['I3: Revenue']])
+    predicted_stock_esg = stock_esg.predict(df[columns_to_standardize + ['I3: Revenue']])
     pred = {
         'Predicted ESG Score' : [predicted_esg_score[0]],
         'Predicted Stock Price from Revenue': [format_stock(predicted_stock[0])],
@@ -76,7 +74,52 @@ def make_predictions(df):
 def get_input_fileds(df):
     return [[i, c] for i, c in enumerate(df.columns.to_list())] 
 
+def get_top_bottom(df):
+    columns_to_standardize = df.columns.tolist()[4:4+esg_cols]
+    columns_to_rank = [col for col in df.columns if 'Difference' in col]
+    kv = {col[:2]:col for col in columns_to_standardize}
+    ranked_df = df[columns_to_rank].apply(lambda row: row.rank(ascending=False), axis=1)
 
+    bottom_three = ranked_df.apply(lambda row: row.nlargest(3).index.tolist(), axis=1).to_list()[0]
+    top_three = ranked_df.apply(lambda row: row.nsmallest(3).index.tolist(), axis=1).to_list()[0]
+
+    bottom_three_col = [kv[c[:2]] for c in bottom_three]
+    top_three_col = [kv[c[:2]] for c in top_three]
+
+    t = ['Top 1', 'Top 2', 'Top 3', 'Bottom 3', 'Bottom 2', 'Bottom 1']
+
+    ret = pd.DataFrame({k:[v] for (k, v) in zip(t, top_three_col + bottom_three_col[::-1])})
+
+    return ret
+
+def get_difference(df):
+    # Calculate weighted ESG score for each row
+    weights = {'E': 0.4, 'S': 0.3, 'G': 0.3}
+    columns_to_standardize = df.columns.tolist()[4:4+esg_cols]
+    for k in weights.keys():
+        name = k + ' Average Score'
+        lst = [col for col in columns_to_standardize if col[0] == k]
+        size = len(lst)
+        df[name] = df.apply(lambda row: sum(row[col] for col in columns_to_standardize if col[0] == k) / size, axis=1)
+        for cur in lst:
+            cur_name = cur[:2] + ' Difference than Average'
+            df[cur_name] = df[cur] - df[name]
+    return df
+
+def get_suggestion(df, point):
+    columns_to_standardize = df.columns.tolist()[4:4+esg_cols]
+    columns_to_rank = [col for col in df.columns if 'Difference' in col]
+    kv = {col[:2]:col for col in columns_to_standardize}
+    ranked_df = df[columns_to_rank].apply(lambda row: row.rank(ascending=False), axis=1)
+
+    bottom_three = ranked_df.apply(lambda row: row.nlargest(3).index.tolist(), axis=1).to_list()[0]
+    bottom_three_col = [kv[c[:2]] for c in bottom_three]
+
+    df[bottom_three_col] += point
+
+    ret = make_predictions(df)
+
+    return ret
 
 @app.route('/', methods=['GET'])
 def index():
@@ -88,9 +131,13 @@ def index():
 def generate_prediction():
     df_input = pd.read_json(session['df_input'])
     pred = make_predictions(df_input)
-
+    diff_df = get_difference(df_input.copy())
+    top_bottom = get_top_bottom(diff_df)
+    point = random.randint(1, 10)
+    suggest = get_suggestion(diff_df, point)
     return render_template('predict.html', df_html=df_to_html(df_input), 
-                           pred_html=df_to_html(pred))
+                           pred_html=df_to_html(pred), topbottom_html = df_to_html(top_bottom),
+                           point=point, suggest_html = df_to_html(suggest))
 
 @app.route('/insert', methods=['GET', 'POST'])
 def insert_company():
