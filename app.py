@@ -2,10 +2,6 @@ from flask import Flask, render_template, request, session, redirect
 # packages
 import pandas as pd
 import random
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.multioutput import MultiOutputRegressor
-from sklearn.metrics import mean_squared_error
 import joblib
 import numpy as np
 
