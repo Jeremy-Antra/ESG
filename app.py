@@ -8,7 +8,6 @@ from sklearn.multioutput import MultiOutputRegressor
 from sklearn.metrics import mean_squared_error
 import joblib
 import numpy as np
-# import matplotlib.pyplot as plt
 
 
 app = Flask(__name__)
@@ -49,7 +48,9 @@ def load_models():
     esg = joblib.load('assets/linear_ESG_model.pkl')
     stock = joblib.load('assets/linear_Stock_model.pkl')
     stock_esg = joblib.load('assets/linear_Stock_ESG_model.pkl')
-    return esg, stock, stock_esg
+    good_news = joblib.load('assets/linear_ESG_Score_GoodNews.pkl')
+    bad_news = joblib.load('assets/linear_ESG_Score_BadNews.pkl')
+    return esg, stock, stock_esg, good_news, bad_news
 
 def format_stock(arr):
     headers = ['Average', 'Minimum', 'Maximum']
@@ -59,15 +60,19 @@ def df_to_html(df):
     return df.to_html(classes='table table-striped', index=False)
 
 def make_predictions(df):
-    esg, stock, stock_esg = load_models()
+    esg, stock, stock_esg, good, bad = load_models()
     columns_to_standardize = df.columns.tolist()[4:4+esg_cols]
     predicted_esg_score = esg.predict(df[columns_to_standardize])
     predicted_stock = stock.predict(df['I3: Revenue'].to_numpy().reshape(-1, 1))
     predicted_stock_esg = stock_esg.predict(df[columns_to_standardize + ['I3: Revenue']])
+    predicted_good = good.predict(predicted_esg_score[0].reshape(-1, 1))
+    predicted_bad = bad.predict(predicted_esg_score[0].reshape(-1, 1))
     pred = {
         'Predicted ESG Score' : [predicted_esg_score[0]],
         'Predicted Stock Price from Revenue': [format_stock(predicted_stock[0])],
-        'Predicted Stock Price from Revenue with ESG': [format_stock(predicted_stock_esg[0])]
+        'Predicted Stock Price from Revenue with ESG': [format_stock(predicted_stock_esg[0])],
+        'Predicted Number of GOOD News Coverage': [int(predicted_good[0])],
+        'Predicted Number of BAD News Coverage': [int(predicted_bad[0])]
     }
     return pd.DataFrame(pred).round(2)
 
